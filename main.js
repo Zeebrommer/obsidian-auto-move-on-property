@@ -18,7 +18,11 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 const { Plugin, PluginSettingTab, Setting, normalizePath } = require('obsidian');
 const DEFAULT_SETTINGS = {
-    rules: []
+    rules: [],
+    watchedFolders: "",
+    watchRoot: true,
+    showMoveToast: true,
+    showDebugToast: false
 };
 module.exports = class AutoMoveOnPropertyPlugin extends Plugin {
     onload() {
@@ -37,6 +41,10 @@ module.exports = class AutoMoveOnPropertyPlugin extends Plugin {
                     return path.startsWith(folder + "/") && path.split("/").length === folder.split("/").length + 1;
                 });
                 if (!isWatched) return;
+
+                if (this.settings.showDebugToast) {
+                    new Notice(`Debug: Checking file ${file.name} in ${path}`);
+                }
                 const content = yield this.app.vault.read(file);
                 const match = content.match(/^---\n([\s\S]*?)\n---/);
                 if (!match)
@@ -51,6 +59,9 @@ module.exports = class AutoMoveOnPropertyPlugin extends Plugin {
                             return;
                         yield this.app.vault.createFolder(newFolder).catch(() => { });
                         yield this.app.fileManager.renameFile(file, newPath);
+                        if (this.settings.showMoveToast) {
+                            new Notice(`Moved: ${file.name} → ${newFolder}`);
+                        }
                         return;
                     }
                 }
@@ -77,6 +88,52 @@ class AutoMoveSettingTab extends PluginSettingTab {
         const { containerEl } = this;
         containerEl.empty();
         containerEl.createEl("h2", { text: "Auto Move On Property Settings" });
+
+        new Setting(containerEl)
+            .setName("Watched folders")
+            .setDesc("Comma-separated list of folders to monitor for changes")
+            .addText(text => text
+                .setPlaceholder("e.g., inbox, drafts, temp")
+                .setValue(this.plugin.settings.watchedFolders)
+                .onChange(async (value) => {
+                    this.plugin.settings.watchedFolders = value;
+                    await this.plugin.saveSettings();
+                })
+            );
+
+        new Setting(containerEl)
+            .setName("Always watch vault root")
+            .setDesc("Include notes in the vault root folder")
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.watchRoot)
+                .onChange(async (value) => {
+                    this.plugin.settings.watchRoot = value;
+                    await this.plugin.saveSettings();
+                })
+            );
+
+        new Setting(containerEl)
+            .setName("Show move notifications")
+            .setDesc("Display a toast notification when a file is moved")
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.showMoveToast)
+                .onChange(async (value) => {
+                    this.plugin.settings.showMoveToast = value;
+                    await this.plugin.saveSettings();
+                })
+            );
+
+        new Setting(containerEl)
+            .setName("Show debug notifications")
+            .setDesc("Display debug information toasts (for troubleshooting)")
+            .addToggle(toggle => toggle
+                .setValue(this.plugin.settings.showDebugToast)
+                .onChange(async (value) => {
+                    this.plugin.settings.showDebugToast = value;
+                    await this.plugin.saveSettings();
+                })
+            );
+
         this.plugin.settings.rules.forEach((rule, idx) => {
             const setting = new Setting(containerEl)
                 .setName(`Rule ${idx + 1}`)

@@ -11,6 +11,8 @@ interface MoveRule {
 
 interface AutoMoveSettings {
 	rules: MoveRule[];
+	watchedFolders: string;
+	watchRoot: boolean;
 	showMoveToast: boolean;
 	showDebugToast: boolean;
 }
@@ -19,6 +21,8 @@ const DEFAULT_SETTINGS: AutoMoveSettings = {
 	rules: [
 		// Example: { property: "domain", value: "Health", folder: "Health" }
 	],
+	watchedFolders: "",
+	watchRoot: true,
 	showMoveToast: true,
 	showDebugToast: false
 };
@@ -34,7 +38,21 @@ export default class AutoMoveOnPropertyPlugin extends Plugin {
 			this.app.vault.on("modify", async (file: TFile) => {
 				if (!(file instanceof TFile) || file.extension !== "md") return;
 				const path = file.path;
-				if (path.includes("/")) return; // Only act on root files
+
+				// Only use folders specified in UI settings, plus root if enabled
+				let watchedFolders = this.settings.watchedFolders.split(",").map(f => f.trim()).filter(f => f.length > 0);
+				if (this.settings.watchRoot) watchedFolders.push("");
+
+				const isWatched = watchedFolders.some(folder => {
+					if (folder === "") return !path.includes("/");
+					return path.startsWith(folder + "/") && path.split("/").length === folder.split("/").length + 1;
+				});
+
+				if (!isWatched) return;
+
+				if (this.settings.showDebugToast) {
+					new Notice(`Debug: Checking file ${file.name} in ${path}`);
+				}
 
 				const content = await this.app.vault.read(file);
 				const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
@@ -97,6 +115,39 @@ class AutoMoveSettingTab extends PluginSettingTab {
 		const { containerEl } = this;
 		containerEl.empty();
 		containerEl.createEl("h2", { text: "Auto Move On Property Settings" });
+
+		new Setting(containerEl)
+			.setName("Show move notifications")
+			.setDesc("Display a toast notification when a file is moved")
+			.addToggle((toggle: ToggleComponent) =>
+				toggle.setValue(this.plugin.settings.showMoveToast).onChange(async (value: boolean) => {
+					this.plugin.settings.showMoveToast = value;
+					await this.plugin.saveSettings();
+				})
+			);
+
+		new Setting(containerEl)
+			.setName("Watched folders")
+			.setDesc("Comma-separated list of folders to monitor for changes")
+			.addText((text: TextComponent) => {
+				text.setPlaceholder("e.g., inbox, drafts, temp")
+					.setValue(this.plugin.settings.watchedFolders)
+					.onChange(async (value: string) => {
+						this.plugin.settings.watchedFolders = value;
+						await this.plugin.saveSettings();
+					});
+			});
+
+		new Setting(containerEl)
+			.setName("Always watch vault root")
+			.setDesc("Include notes in the vault root folder")
+			.addToggle((toggle: ToggleComponent) => {
+				toggle.setValue(this.plugin.settings.watchRoot)
+					.onChange(async (value: boolean) => {
+						this.plugin.settings.watchRoot = value;
+						await this.plugin.saveSettings();
+					});
+			});
 
 		new Setting(containerEl)
 			.setName("Show move notifications")
